@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a0d12">
+<title>Task Tap</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#0a0d12;color:#e8e8ea;font:14px/1.4 system-ui,-apple-system,sans-serif;min-height:100vh;overscroll-behavior:none}
+  body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+  /* Animated background */
+  .bg{position:fixed;inset:0;z-index:-1;background:
+    radial-gradient(ellipse at 20% 10%, #1a2440 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 90%, #2a1a3a 0%, transparent 50%),
+    linear-gradient(180deg,#0a0d12 0%, #0e1118 100%);
+    animation:bgShift 40s ease-in-out infinite alternate}
+  @keyframes bgShift{0%{filter:hue-rotate(0deg)}100%{filter:hue-rotate(20deg)}}
+  /* Header */
+  header{position:sticky;top:0;background:rgba(10,13,18,.85);backdrop-filter:blur(8px);border-bottom:1px solid #1a1f2a;padding:10px 14px;display:flex;align-items:center;gap:10px;z-index:30}
+  header h1{margin:0;font-size:15px;font-weight:600;flex:1;letter-spacing:.02em}
+  .icon-btn{background:#1a1f2a;color:#e8e8ea;border:0;width:34px;height:34px;border-radius:8px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .icon-btn:hover{background:#242a38}
+  /* Status strip */
+  .status{padding:10px 14px;display:flex;align-items:center;gap:10px;background:rgba(15,18,26,.6);border-bottom:1px solid #1a1f2a;font-size:12px;transition:background .3s}
+  .status .dot{width:8px;height:8px;border-radius:50%;background:#5a5a66;flex-shrink:0;transition:all .3s}
+  .status.ready .dot{background:#3ad17e;box-shadow:0 0 8px #3ad17e}
+  .status.flash{background:rgba(58,209,126,.18)}
+  .status.flash .dot{background:#3ad17e;box-shadow:0 0 12px #3ad17e}
+  .status.warn .dot{background:#ff8a3a}
+  .status.err .dot{background:#ff5a5a}
+  .status .label{flex:1;color:#a8a8b0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .status.ready .label,.status.flash .label{color:#e8e8ea}
+  /* Canvas: road + cards */
+  .canvas{position:relative;width:100%;padding:20px 0 100px}
+  .road-svg{display:block;width:100%;height:auto}
+  .road-svg path.road{fill:none;stroke:#2a3142;stroke-width:3;stroke-dasharray:10 8;stroke-linecap:round}
+  .road-svg path.road-glow{fill:none;stroke:rgba(58,134,255,.08);stroke-width:18;stroke-linecap:round}
+  /* Cards positioned over SVG */
+  .cards-layer{position:absolute;inset:20px 0 100px 0;pointer-events:none}
+  .card{position:absolute;transform:translate(-50%,-50%);background:rgba(22,26,35,.92);backdrop-filter:blur(6px);border:1px solid #2a3142;border-radius:10px;padding:7px 9px;width:128px;cursor:pointer;pointer-events:auto;transition:transform .15s, border-color .15s;display:flex;gap:7px;align-items:center}
+  .card:hover{border-color:#3a86ff;transform:translate(-50%,-50%) scale(1.03)}
+  .card.today{border-color:#3a4258}
+  .card.done{border-color:#3ad17e}
+  .card.due{border-color:#ff8a3a}
+  .card.missed{border-color:#ff5a5a}
+  .card.running{border-color:#3a86ff;box-shadow:0 0 12px rgba(58,134,255,.4)}
+  .card.notday{opacity:.5}
+  .card .badge{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;font-size:11px;display:flex;align-items:center;justify-content:center;color:#fff;z-index:2}
+  .card.done .badge{background:#3ad17e}
+  .card.due .badge{background:#ff8a3a}
+  .card.missed .badge{background:#ff5a5a}
+  .card.running .badge{background:#3a86ff;animation:blink 1.5s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+  .card .house-ico{font-size:24px;line-height:1;flex-shrink:0;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))}
+  .card .card-body{min-width:0;flex:1}
+  .card .nm{font-weight:600;font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .card .mt{font-size:11px;color:#a8a8b0;margin-top:2px}
+  .card .mt .tm{color:#3a86ff;font-weight:600}
+  /* Decoration in empty slots */
+  .deco{position:absolute;transform:translate(-50%,-50%);font-size:26px;pointer-events:none;opacity:.55;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5))}
+  /* Character */
+  .char{position:absolute;font-size:32px;transform:translate(-50%,-50%);pointer-events:none;filter:drop-shadow(0 2px 6px rgba(0,0,0,.6));transition:left .8s ease, top .8s ease;z-index:5}
+  /* Empty state */
+  .empty{text-align:center;color:#5a5a66;padding:60px 20px;font-size:14px}
+  .empty button{margin-top:14px;background:#3a86ff;color:#fff;border:0;padding:10px 18px;border-radius:8px;font:inherit;cursor:pointer}
+  /* FAB */
+  .fab{position:fixed;right:18px;bottom:18px;width:54px;height:54px;border-radius:50%;background:#3a86ff;color:#fff;border:0;font-size:26px;cursor:pointer;box-shadow:0 4px 14px rgba(58,134,255,.4);display:flex;align-items:center;justify-content:center;z-index:20}
+  /* Modal */
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:flex-end;justify-content:center;z-index:100}
+  .modal-bg.open{display:flex}
+  .modal{background:#11151d;border:1px solid #2a3142;border-radius:14px 14px 0 0;padding:18px;width:100%;max-width:560px;max-height:92vh;overflow-y:auto}
+  @media(min-width:600px){.modal-bg{align-items:center}.modal{border-radius:14px}}
+  .modal h3{margin:0 0 14px;font-size:17px}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:11px;color:#8a8a96;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em}
+  .field input,.field select,.field textarea{width:100%;background:#0a0d12;border:1px solid #2a3142;color:#fff;padding:9px 10px;border-radius:7px;font:inherit}
+  .field input:focus,.field select:focus{outline:0;border-color:#3a86ff}
+  .row{display:flex;gap:10px}
+  .row .field{flex:1}
+  .chip-row{display:flex;gap:6px;flex-wrap:wrap}
+  .chip-row button{flex:1;min-width:48px;background:#0a0d12;border:1px solid #2a3142;color:#e8e8ea;padding:8px 6px;border-radius:7px;font:inherit;cursor:pointer;font-size:12px}
+  .chip-row button.sel{background:#3a86ff;border-color:#3a86ff;color:#fff}
+  .chip-row button:disabled{opacity:.35}
+  .actions{display:flex;gap:8px;margin-top:18px}
+  .actions button{flex:1;padding:11px;border-radius:8px;border:0;font:inherit;font-weight:600;cursor:pointer}
+  .btn-primary{background:#3a86ff;color:#fff}
+  .btn-secondary{background:#1a1f2a;color:#e8e8ea}
+  .btn-danger{background:#3a1418;color:#ff7a7a}
+  .tag-id{font-family:ui-monospace,monospace;font-size:12px;background:#0a0d12;padding:7px 9px;border-radius:6px;color:#a8a8b0;word-break:break-all;border:1px solid #2a3142}
+  .hist-item{background:#0e1118;border:1px solid #1a1f2a;border-radius:6px;padding:8px 10px;margin-bottom:5px;display:flex;justify-content:space-between;font-size:12px}
+  .hist-item .ts{color:#a8a8b0}
+  .hist-item .val{font-weight:600;color:#fff}
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px}
+  .stat{background:#0a0d12;border:1px solid #1a1f2a;border-radius:7px;padding:9px;text-align:center}
+  .stat .v{font-size:18px;font-weight:700;color:#fff}
+  .stat .l{font-size:10px;color:#8a8a96;text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
+  .icons-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+  .icons-grid button{background:#0a0d12;border:1px solid #2a3142;border-radius:8px;padding:10px;font-size:24px;cursor:pointer}
+  .icons-grid button.sel{border-color:#3a86ff;background:#15203a}
+  /* Alarm overlay */
+  .alarm-ov{position:fixed;inset:0;background:rgba(255,138,58,.18);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:200;animation:pulse 1s ease-in-out infinite alternate}
+  .alarm-ov.open{display:flex}
+  @keyframes pulse{from{background:rgba(255,138,58,.12)}to{background:rgba(255,138,58,.28)}}
+  .alarm-card{background:#11151d;border:2px solid #ff8a3a;border-radius:14px;padding:24px;max-width:340px;text-align:center}
+  .alarm-card .ico{font-size:48px;margin-bottom:8px}
+  .alarm-card h2{margin:0 0 4px;font-size:20px}
+  .alarm-card p{margin:0 0 16px;color:#a8a8b0;font-size:13px}
+  .alarm-card button{background:#1a1f2a;color:#e8e8ea;border:0;padding:10px 16px;border-radius:7px;font:inherit;cursor:pointer}
+  .hint{font-size:11px;color:#6a6a76;text-align:center;margin-top:14px}
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<header>
+  <h1>Task Tap</h1>
+  <button class="icon-btn" id="settingsBtn" title="Settings">⚙</button>
+</header>
+<div class="status" id="status">
+  <div class="dot"></div>
+  <div class="label" id="statusLabel">Tap anywhere to arm NFC</div>
+</div>
+<div class="canvas" id="canvas">
+  <svg class="road-svg" id="roadSvg" preserveAspectRatio="xMidYMid meet"></svg>
+  <div class="cards-layer" id="cardsLayer"></div>
+</div>
+<button class="fab" id="fab" title="Add task">+</button>
+
+<div class="modal-bg" id="modalBg"><div class="modal" id="modal"></div></div>
+<div class="alarm-ov" id="alarmOv">
+  <div class="alarm-card">
+    <div class="ico" id="alarmIco">⏰</div>
+    <h2 id="alarmTitle">Task time</h2>
+    <p id="alarmMsg">Tap your sticker to log it.</p>
+    <button id="alarmDismiss">Dismiss</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   Task Tap — single-file PWA
+   v1: silent-arm NFC, road UI, foreground alarms, IndexedDB
+   ============================================================ */
+
+/* ---------- Service Worker registration ---------- */
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
+
+/* ---------- IndexedDB ---------- */
+const DB_NAME='tasktap', DB_VER=1;
+function openDB(){return new Promise((res,rej)=>{
+  const r=indexedDB.open(DB_NAME,DB_VER);
+  r.onupgradeneeded=e=>{
+    const db=e.target.result;
+    if(!db.objectStoreNames.contains('tasks')){
+      const s=db.createObjectStore('tasks',{keyPath:'id'});
+      s.createIndex('createdAt','createdAt');
+    }
+    if(!db.objectStoreNames.contains('taps')){
+      const s=db.createObjectStore('taps',{keyPath:'id',autoIncrement:true});
+      s.createIndex('taskId','taskId');
+      s.createIndex('timestamp','timestamp');
+    }
+  };
+  r.onsuccess=()=>res(r.result);
+  r.onerror=()=>rej(r.error);
+});}
+async function dbGet(s,k){const db=await openDB();return new Promise((r,j)=>{const q=db.transaction(s).objectStore(s).get(k);q.onsuccess=()=>r(q.result);q.onerror=()=>j(q.error);});}
+async function dbPut(s,v){const db=await openDB();return new Promise((r,j)=>{const q=db.transaction(s,'readwrite').objectStore(s).put(v);q.onsuccess=()=>r(q.result);q.onerror=()=>j(q.error);});}
+async function dbAdd(s,v){const db=await openDB();return new Promise((r,j)=>{const q=db.transaction(s,'readwrite').objectStore(s).add(v);q.onsuccess=()=>r(q.result);q.onerror=()=>j(q.error);});}
+async function dbDel(s,k){const db=await openDB();return new Promise((r,j)=>{const q=db.transaction(s,'readwrite').objectStore(s).delete(k);q.onsuccess=()=>r();q.onerror=()=>j(q.error);});}
+async function dbAll(s){const db=await openDB();return new Promise((r,j)=>{const q=db.transaction(s).objectStore(s).getAll();q.onsuccess=()=>r(q.result);q.onerror=()=>j(q.error);});}
+
+/* ---------- Settings (localStorage) ---------- */
+const ICONS = ['🚶','🏃','🚴','🚗','🐕','🐈','🦊','🐢','🚀','⭐'];
+const HOUSES = ['🏠','🏡','🏢','🏪','🏬','🏥','🏫','⛪','🏟','🏋','☕','🍳','🚿','🛏','🧺','🧹','📚','💼','🎨','🎮'];
+const DECOS = ['🌲','🌳','🌴','🪨','🚧','🚦','⛲','🗿','🪧','🌵'];
+const SLOTS_MAX = 10;
+function getIcon(){return localStorage.getItem('tt.icon') || '🚶';}
+function setIcon(v){localStorage.setItem('tt.icon', v);}
+function getHouse(taskId){return localStorage.getItem('tt.house.'+taskId) || HOUSES[0];}
+function setHouse(taskId, v){localStorage.setItem('tt.house.'+taskId, v);}
+function decoForSlot(i){return DECOS[i % DECOS.length];}
+function isFirstRun(){return !localStorage.getItem('tt.seenIntro');}
+function markIntroSeen(){localStorage.setItem('tt.seenIntro','1');}
+
+/* ---------- Constants / helpers ---------- */
+const DAY_NAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const LEAD_OPTIONS=[5,10,15];
+function todayDow(){return new Date().getDay();}
+function dayStart(d){const x=new Date(d);x.setHours(0,0,0,0);return x.getTime();}
+function dayEnd(d){const x=new Date(d);x.setHours(23,59,59,999);return x.getTime();}
+function fmtTime(t){if(!t)return '';const [h,m]=t.split(':').map(Number);const d=new Date();d.setHours(h,m);return d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}
+function fmtTs(ts){return new Date(ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function defaultDays(n){if(n===7)return [0,1,2,3,4,5,6];if(n===5)return [1,2,3,4,5];if(n===3)return [1,3,5];if(n===2)return [0,6];if(n===1)return [1];return [];}
+
+/* ---------- Status strip ---------- */
+function setStatus(state, label){
+  const el = document.getElementById('status');
+  el.className = 'status' + (state?' '+state:'');
+  document.getElementById('statusLabel').textContent = label;
+}
+function flashStatus(label, duration=2200){
+  const el = document.getElementById('status');
+  const prevClass = el.className;
+  const prevLabel = document.getElementById('statusLabel').textContent;
+  setStatus('flash', label);
+  setTimeout(()=>{ el.className = prevClass; document.getElementById('statusLabel').textContent = prevLabel; updateIdleStatus(); }, duration);
+}
+async function updateIdleStatus(){
+  if(!nfcOn){ if(nfcError) setStatus('err', nfcError); else setStatus('', 'Tap anywhere to arm NFC'); return; }
+  const taps = await dbAll('taps');
+  if(taps.length===0){ setStatus('ready','Ready · no taps yet'); return; }
+  taps.sort((a,b)=>b.timestamp-a.timestamp);
+  const last = taps[0];
+  const task = await dbGet('tasks', last.taskId);
+  const nm = task ? task.name : 'deleted task';
+  setStatus('ready', `Ready · last: ${nm} ${fmtTs(last.timestamp).replace(/.*?, /,'')}`);
+}
+
+/* ---------- NFC (silent arm) ---------- */
+let nfcReader=null, nfcOn=false, nfcError=null, nfcArming=false;
+async function armNfc(){
+  if(nfcOn || nfcArming) return;
+  if(!('NDEFReader' in window)){ nfcError='Web NFC not available (use Chrome on Android)'; updateIdleStatus(); return; }
+  nfcArming = true;
+  try{
+    nfcReader = new NDEFReader();
+    await nfcReader.scan();
+    nfcReader.addEventListener('reading', onNfcRead);
+    nfcReader.addEventListener('readingerror', ()=>{});
+    nfcOn = true; nfcError=null;
+    updateIdleStatus();
+  }catch(e){
+    nfcError = 'NFC unavailable: ' + (e.message||e.name||'unknown');
+    updateIdleStatus();
+  } finally {
+    nfcArming = false;
+  }
+}
+async function onNfcRead(e){
+  const id = e.serialNumber || '';
+  if(!id){ flashStatus('Tag had no ID — incompatible', 3000); return; }
+  await handleTagId(id);
+}
+async function handleTagId(id){
+  const task = await dbGet('tasks', id);
+  if(task){
+    if(activeAlarmTaskId === task.id) stopAlarm();
+    await logTap(task);
+  } else {
+    openSetupModal(id);
+  }
+}
+
+async function logTap(task){
+  const ts = Date.now();
+  await dbAdd('taps', {taskId:task.id, timestamp:ts});
+  // Build status message based on type and prior taps
+  if(task.type==='session'){
+    const allTaps = await dbAll('taps');
+    const taskTaps = allTaps.filter(x=>x.taskId===task.id).sort((a,b)=>a.timestamp-b.timestamp);
+    const count = taskTaps.length;
+    // Pair starting from first: odd-indexed (1st, 3rd...) = start, even-indexed (2nd, 4th...) = stop
+    if(count % 2 === 1){
+      flashStatus(`▶ ${task.name} — started`);
+    } else {
+      const start = taskTaps[count-2].timestamp;
+      const stop = ts;
+      const mins = Math.round((stop - start) / 60000);
+      const expected = task.expectedDuration || 0;
+      let diff = '';
+      if(expected > 0){
+        const d = mins - expected;
+        if(d > 0) diff = ` (+${d} over)`;
+        else if(d < 0) diff = ` (${d} under)`;
+        else diff = ` (on time)`;
+      }
+      flashStatus(`■ ${task.name} — ${mins} min${diff}`, 3500);
+    }
+  } else {
+    flashStatus(`✓ ${task.name} logged`);
+  }
+  await render();
+}
+
+/* First-touch silent arm */
+function setupSilentArm(){
+  const onFirstTouch = ()=>{
+    document.removeEventListener('pointerdown', onFirstTouch, true);
+    armNfc();
+  };
+  document.addEventListener('pointerdown', onFirstTouch, true);
+}
+
+/* ---------- Reminder scheduling (foreground) ---------- */
+let reminderTimers = [];
+let activeAlarmTaskId = null;
+
+function nextFireDate(task, leadMin, now){
+  for(let i=0;i<8;i++){
+    const d = new Date(now);
+    d.setDate(d.getDate()+i);
+    if(!task.days.includes(d.getDay())) continue;
+    const [h,m] = task.targetTime.split(':').map(Number);
+    d.setHours(h, m, 0, 0);
+    d.setMinutes(d.getMinutes() - leadMin);
+    if(d.getTime() > now.getTime()) return d;
+  }
+  return null;
+}
+
+async function rescheduleReminders(){
+  reminderTimers.forEach(clearTimeout);
+  reminderTimers = [];
+  const tasks = await dbAll('tasks');
+  const now = new Date();
+  for(const t of tasks){
+    if(!t.targetTime) continue;
+    const leads = (t.reminderLeads && t.reminderLeads.length) ? t.reminderLeads : [];
+    if(leads.length===0) continue;
+    for(const lead of leads){
+      const fd = nextFireDate(t, lead, now);
+      if(!fd) continue;
+      const ms = fd.getTime() - now.getTime();
+      if(ms <= 0 || ms > 24*3600*1000) continue;
+      const id = setTimeout(()=>fireReminder(t, lead), ms);
+      reminderTimers.push(id);
+    }
+  }
+}
+
+function fireReminder(task, leadMin){
+  activeAlarmTaskId = task.id;
+  document.getElementById('alarmIco').textContent = getIcon();
+  document.getElementById('alarmTitle').textContent = task.name;
+  const when = leadMin>0 ? `in ${leadMin} min (${fmtTime(task.targetTime)})` : `now (${fmtTime(task.targetTime)})`;
+  document.getElementById('alarmMsg').textContent = `Due ${when}. Tap your sticker to log it.`;
+  document.getElementById('alarmOv').classList.add('open');
+  startAlarmSound();
+  if('Notification' in window && Notification.permission==='granted'){
+    try{ new Notification(task.name, {body:`Due ${when}`, tag:task.id, silent:false}); }catch(e){}
+  }
+  // After firing, reschedule the next round
+  setTimeout(rescheduleReminders, 1000);
+}
+
+function stopAlarm(){
+  activeAlarmTaskId = null;
+  document.getElementById('alarmOv').classList.remove('open');
+  stopAlarmSound();
+}
+
+/* ---------- Audio alarm (Web Audio, looped beep) ---------- */
+let audioCtx=null, beepInterval=null, currentOsc=null;
+function startAlarmSound(){
+  stopAlarmSound();
+  try{ audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return; }
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  let high = true;
+  const beep = ()=>{
+    try{
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.frequency.value = high ? 880 : 660;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0, audioCtx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.25, audioCtx.currentTime+0.02);
+      gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime+0.25);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime+0.3);
+      currentOsc = osc;
+      high = !high;
+    }catch(e){}
+  };
+  beep();
+  beepInterval = setInterval(beep, 600);
+}
+function stopAlarmSound(){
+  if(beepInterval){ clearInterval(beepInterval); beepInterval=null; }
+  try{ currentOsc?.stop(); }catch(e){}
+  currentOsc=null;
+}
+document.getElementById('alarmDismiss').onclick = stopAlarm;
+
+/* ---------- Road rendering: 10 fixed slots, straight road, alternating sides ---------- */
+// Sort tasks by next scheduled occurrence (date+time chronologically)
+function nextOccurrence(task, now){
+  for(let i=0;i<8;i++){
+    const d = new Date(now);
+    d.setDate(d.getDate()+i);
+    if(!task.days.includes(d.getDay())) continue;
+    if(task.targetTime){
+      const [h,m] = task.targetTime.split(':').map(Number);
+      d.setHours(h,m,0,0);
+    } else {
+      d.setHours(23,59,0,0);
+    }
+    if(d.getTime() >= now.getTime() - (i===0?86400000:0)) return d.getTime();
+  }
+  return Infinity;
+}
+
+async function render(){
+  const tasks = await dbAll('tasks');
+  const canvas = document.getElementById('canvas');
+  const svg = document.getElementById('roadSvg');
+  const layer = document.getElementById('cardsLayer');
+
+  // Sort by next occurrence (chronological)
+  const now = new Date();
+  tasks.forEach(t => { t._next = nextOccurrence(t, now); });
+  tasks.sort((a,b) => a._next - b._next);
+
+  // Road geometry: straight vertical line, 10 slots, narrower & tighter
+  const W = 360;
+  const slotSpacing = 110;
+  const topPad = 60, bottomPad = 60;
+  const H = topPad + bottomPad + slotSpacing * (SLOTS_MAX - 1);
+  const roadX = W/2;
+  const roadHalfWidth = 28;
+
+  // Build road SVG
+  let svgInner = '';
+  svgInner += `<rect x="${roadX-roadHalfWidth}" y="0" width="${roadHalfWidth*2}" height="${H}" fill="#15191f"/>`;
+  svgInner += `<line x1="${roadX-roadHalfWidth}" y1="0" x2="${roadX-roadHalfWidth}" y2="${H}" stroke="#2a3142" stroke-width="2"/>`;
+  svgInner += `<line x1="${roadX+roadHalfWidth}" y1="0" x2="${roadX+roadHalfWidth}" y2="${H}" stroke="#2a3142" stroke-width="2"/>`;
+  svgInner += `<line x1="${roadX}" y1="0" x2="${roadX}" y2="${H}" stroke="#3a4258" stroke-width="2" stroke-dasharray="10 8"/>`;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = svgInner;
+
+  // Slot positions
+  const slots = [];
+  for(let i=0;i<SLOTS_MAX;i++){
+    const y = topPad + i*slotSpacing;
+    const side = i%2===0 ? 'left' : 'right';
+    const x = side==='left' ? roadX - 90 : roadX + 90;
+    slots.push({i, x, y, side});
+  }
+
+  // Taps for status
+  const taps = await dbAll('taps');
+  const ds = dayStart(Date.now()), de = dayEnd(Date.now());
+  const nowMs = Date.now();
+  const dow = todayDow();
+
+  layer.innerHTML = '';
+  let charSlotY = topPad;
+
+  for(let i=0;i<SLOTS_MAX;i++){
+    const slot = slots[i];
+    const xPct = (slot.x/W)*100;
+    const yPct = (slot.y/H)*100;
+
+    if(i < tasks.length){
+      const t = tasks[i];
+      const isToday = t.days.includes(dow);
+      const tapsToday = taps.filter(x=>x.taskId===t.id && x.timestamp>=ds && x.timestamp<=de);
+      const allTapsForTask = taps.filter(x=>x.taskId===t.id).sort((a,b)=>a.timestamp-b.timestamp);
+      const sessionOpen = t.type==='session' && (allTapsForTask.length % 2 === 1);
+
+      let cls='card', badge='', tmStr=t.targetTime?fmtTime(t.targetTime):'anytime';
+      let stateLabel = '';
+
+      if(!isToday){ cls += ' notday'; }
+      else {
+        cls += ' today';
+        if(sessionOpen){
+          cls += ' running'; badge='▶';
+          const lastStart = allTapsForTask[allTapsForTask.length-1].timestamp;
+          const mins = Math.floor((nowMs - lastStart)/60000);
+          stateLabel = `running · ${mins}m`;
+        } else if(tapsToday.length>0){
+          cls += ' done'; badge='✓';
+          if(t.type==='session'){
+            // Find last pair of taps today
+            const todayTaps = tapsToday;
+            if(todayTaps.length>=2){
+              const start = todayTaps[todayTaps.length-2].timestamp;
+              const stop = todayTaps[todayTaps.length-1].timestamp;
+              const mins = Math.round((stop-start)/60000);
+              const exp = t.expectedDuration||0;
+              const d = mins - exp;
+              const sign = d>0?'+':(d<0?'':'');
+              stateLabel = `${mins}m${exp?` (${sign}${d})`:''}`;
+            } else {
+              stateLabel = 'done';
+            }
+          } else {
+            stateLabel = 'done';
+          }
+        } else if(t.targetTime){
+          const [hh,mm]=t.targetTime.split(':').map(Number);
+          const tgt = new Date(); tgt.setHours(hh,mm,0,0);
+          if(nowMs > tgt.getTime()){ cls += ' missed'; badge='!'; stateLabel='past due'; }
+          else { cls += ' due'; badge='○'; stateLabel='pending'; }
+        } else {
+          cls += ' due'; badge='○'; stateLabel='pending';
+        }
+      }
+
+      // Character parks at first today-task that's pending or running
+      const firstPendingIdx = tasks.findIndex(tk=>{
+        if(!tk.days.includes(dow)) return false;
+        const tt = taps.filter(x=>x.taskId===tk.id).sort((a,b)=>a.timestamp-b.timestamp);
+        const ttToday = taps.filter(x=>x.taskId===tk.id && x.timestamp>=ds && x.timestamp<=de);
+        const open = tk.type==='session' && (tt.length % 2 === 1);
+        return open || ttToday.length===0;
+      });
+      if(i === firstPendingIdx) charSlotY = slot.y;
+
+      const house = getHouse(t.id);
+      const card = document.createElement('div');
+      card.className = cls + ' ' + slot.side;
+      card.style.left = xPct+'%';
+      card.style.top = yPct+'%';
+      card.dataset.id = t.id;
+      card.innerHTML = `
+        ${badge?`<div class="badge">${badge}</div>`:''}
+        <div class="house-ico">${house}</div>
+        <div class="card-body">
+          <div class="nm">${esc(t.name)}</div>
+          <div class="mt"><span class="tm">${tmStr}</span>${stateLabel?' · '+esc(stateLabel):''}</div>
+        </div>
+      `;
+      card.onclick = ()=>openTaskDetail(t.id);
+      layer.appendChild(card);
+    } else {
+      const deco = document.createElement('div');
+      deco.className = 'deco ' + slot.side;
+      deco.style.left = xPct+'%';
+      deco.style.top = yPct+'%';
+      deco.textContent = decoForSlot(i);
+      layer.appendChild(deco);
+    }
+  }
+
+  const char = document.createElement('div');
+  char.className = 'char';
+  char.textContent = getIcon();
+  char.style.left = (roadX/W)*100+'%';
+  char.style.top = (charSlotY/H)*100+'%';
+  layer.appendChild(char);
+}
+
+/* ---------- Setup modal ---------- */
+function openSetupModal(tagId, existing){
+  const t = existing || {id:tagId,name:'',location:'',days:[0,1,2,3,4,5,6],targetTime:'',type:'single',expectedDuration:20,reminderLeads:[10],createdAt:Date.now()};
+  const isEdit = !!existing;
+  const isManual = !tagId;
+  const dayCount = t.days.length;
+  document.getElementById('modal').innerHTML = `
+    <h3>${isEdit?'Edit task':'New task'}</h3>
+    <div class="field">
+      <label>Tag ID</label>
+      ${isManual ? `<input id="f-tag" type="text" placeholder="Type or paste tag ID (or scan a sticker)" value="${esc(t.id||'')}">` : `<div class="tag-id">${esc(tagId)}</div>`}
+    </div>
+    <div class="field">
+      <label>Name</label>
+      <input id="f-name" type="text" value="${esc(t.name)}" placeholder="e.g. Dishes" autofocus>
+    </div>
+    <div class="field">
+      <label>Location</label>
+      <input id="f-loc" type="text" value="${esc(t.location)}" placeholder="e.g. Kitchen sink">
+    </div>
+    <div class="field">
+      <label>Schedule (days per week)</label>
+      <div class="chip-row" id="f-count">
+        ${[7,5,3,2,1].map(n=>`<button data-n="${n}" class="${dayCount===n?'sel':''}">${n}</button>`).join('')}
+      </div>
+      <div style="height:6px"></div>
+      <div class="chip-row" id="f-days">
+        ${DAY_NAMES.map((d,i)=>`<button data-i="${i}" class="${t.days.includes(i)?'sel':''}">${d}</button>`).join('')}
+      </div>
+    </div>
+    <div class="field">
+      <label>House icon (on the road)</label>
+      <div class="icons-grid" id="f-house">
+        ${HOUSES.map(h=>`<button data-h="${h}" class="${getHouse(t.id)===h?'sel':''}">${h}</button>`).join('')}
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Target time</label>
+        <input id="f-time" type="time" value="${t.targetTime}">
+      </div>
+      <div class="field">
+        <label>Reminders (min early)</label>
+        <div class="chip-row" id="f-rem">
+          ${LEAD_OPTIONS.map(n=>`<button data-n="${n}" class="${(t.reminderLeads||[]).includes(n)?'sel':''}">${n}</button>`).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Type</label>
+        <select id="f-type">
+          <option value="single" ${(t.type||'single')==='single'?'selected':''}>Single tap (chore)</option>
+          <option value="session" ${t.type==='session'?'selected':''}>Session (start / stop)</option>
+        </select>
+      </div>
+      <div class="field" id="f-dur-wrap" style="${(t.type||'single')==='session'?'':'display:none'}">
+        <label>Expected duration (min)</label>
+        <input id="f-dur" type="number" min="1" step="1" value="${t.expectedDuration||20}">
+      </div>
+    </div>
+    <div class="actions">
+      ${isEdit?'<button class="btn-danger" id="f-del">Delete</button>':''}
+      <button class="btn-secondary" id="f-cancel">Cancel</button>
+      <button class="btn-primary" id="f-save">Save</button>
+    </div>
+    <div class="hint">Reminders only fire while the app is open. Set this app to "Unrestricted" battery use in Android settings for best results.</div>
+  `;
+  document.getElementById('modalBg').classList.add('open');
+
+  let selectedCount = dayCount;
+  document.getElementById('f-count').onclick = e=>{
+    if(e.target.tagName!=='BUTTON')return;
+    selectedCount = +e.target.dataset.n;
+    document.querySelectorAll('#f-count button').forEach(b=>b.classList.toggle('sel', +b.dataset.n===selectedCount));
+    const def = defaultDays(selectedCount);
+    document.querySelectorAll('#f-days button').forEach(b=>b.classList.toggle('sel', def.includes(+b.dataset.i)));
+  };
+  document.getElementById('f-days').onclick = e=>{
+    if(e.target.tagName!=='BUTTON')return;
+    if(selectedCount===7 || selectedCount===5) return;
+    const sel = Array.from(document.querySelectorAll('#f-days button.sel')).map(b=>+b.dataset.i);
+    const idx = +e.target.dataset.i;
+    if(sel.includes(idx)){
+      e.target.classList.remove('sel');
+    } else if(sel.length < selectedCount){
+      e.target.classList.add('sel');
+    } else {
+      document.querySelector('#f-days button.sel').classList.remove('sel');
+      e.target.classList.add('sel');
+    }
+  };
+  document.getElementById('f-rem').onclick = e=>{
+    if(e.target.tagName!=='BUTTON')return;
+    e.target.classList.toggle('sel');
+  };
+  let pickedHouse = getHouse(t.id);
+  document.getElementById('f-house').onclick = e=>{
+    if(e.target.tagName!=='BUTTON')return;
+    pickedHouse = e.target.dataset.h;
+    document.querySelectorAll('#f-house button').forEach(b=>b.classList.toggle('sel', b.dataset.h===pickedHouse));
+  };
+  document.getElementById('f-type').onchange = e=>{
+    document.getElementById('f-dur-wrap').style.display = e.target.value==='session' ? '' : 'none';
+  };
+  document.getElementById('f-cancel').onclick = closeModal;
+  if(isEdit){
+    document.getElementById('f-del').onclick = async ()=>{
+      if(!confirm('Delete this task and its tap history?'))return;
+      await dbDel('tasks', t.id);
+      localStorage.removeItem('tt.house.'+t.id);
+      const all = await dbAll('taps');
+      for(const tp of all){ if(tp.taskId===t.id) await dbDel('taps', tp.id); }
+      closeModal();
+      await render();
+      rescheduleReminders();
+    };
+  }
+  document.getElementById('f-save').onclick = async ()=>{
+    const finalId = isManual ? document.getElementById('f-tag').value.trim() : tagId;
+    if(!finalId){ alert('Tag ID required'); return; }
+    const name = document.getElementById('f-name').value.trim();
+    const loc = document.getElementById('f-loc').value.trim();
+    const time = document.getElementById('f-time').value;
+    const type = document.getElementById('f-type').value;
+    const expectedDuration = type==='session' ? parseInt(document.getElementById('f-dur').value,10) || 0 : 0;
+    const days = Array.from(document.querySelectorAll('#f-days button.sel')).map(b=>+b.dataset.i).sort();
+    const reminderLeads = Array.from(document.querySelectorAll('#f-rem button.sel')).map(b=>+b.dataset.n).sort();
+    if(!name){alert('Name required');return;}
+    if(days.length===0){alert('Pick at least one day');return;}
+    if(selectedCount!==7 && selectedCount!==5 && days.length!==selectedCount){alert(`Pick exactly ${selectedCount} day(s)`);return;}
+    if(type==='session' && (!expectedDuration || expectedDuration<1)){alert('Session needs an expected duration');return;}
+    if(reminderLeads.length>0 && time && 'Notification' in window && Notification.permission==='default'){
+      try{ await Notification.requestPermission(); }catch(e){}
+    }
+    await dbPut('tasks', {id:finalId,name,location:loc,days,targetTime:time,type,expectedDuration,reminderLeads,createdAt:t.createdAt||Date.now()});
+    setHouse(finalId, pickedHouse);
+    closeModal();
+    await render();
+    rescheduleReminders();
+  };
+}
+
+/* ---------- Task detail ---------- */
+async function openTaskDetail(id){
+  const task = await dbGet('tasks', id);
+  if(!task) return;
+  const allTaps = await dbAll('taps');
+  const taps = allTaps.filter(x=>x.taskId===id).sort((a,b)=>b.timestamp-a.timestamp);
+  // 7-day stats: scheduled days completed
+  let scheduled=0, hit=0;
+  const now=new Date();
+  for(let i=0;i<7;i++){
+    const d = new Date(now); d.setDate(d.getDate()-i); d.setHours(0,0,0,0);
+    if(!task.days.includes(d.getDay())) continue;
+    scheduled++;
+    const ds = d.getTime(), de = ds+86399999;
+    if(taps.some(t=>t.timestamp>=ds && t.timestamp<=de)) hit++;
+  }
+  const dayStr = task.days.length===7?'Every day':task.days.map(d=>DAY_NAMES[d]).join(' ');
+  const remStr = (task.reminderLeads||[]).length ? task.reminderLeads.join(', ')+' min early' : 'none';
+  const typeStr = task.type==='session' ? `Session · expects ${task.expectedDuration}m` : 'Single tap';
+
+  // Build log entries: if session, pair them
+  let logHtml = '';
+  if(taps.length===0){
+    logHtml = '<div class="empty" style="padding:20px">No taps yet</div>';
+  } else if(task.type==='session'){
+    // Pair chronologically (oldest first then display newest first)
+    const asc = [...taps].reverse();
+    const pairs = [];
+    for(let i=0;i<asc.length;i+=2){
+      const start = asc[i];
+      const stop = asc[i+1];
+      pairs.push({start, stop});
+    }
+    pairs.reverse(); // newest first
+    logHtml = pairs.slice(0,50).map(p=>{
+      if(!p.stop){
+        return `<div class="hist-item"><span class="ts">${fmtTs(p.start.timestamp)}</span><span class="val">▶ open</span></div>`;
+      }
+      const mins = Math.round((p.stop.timestamp - p.start.timestamp)/60000);
+      const exp = task.expectedDuration||0;
+      const d = mins - exp;
+      const diff = exp? (d>0?`+${d}`:(d<0?`${d}`:'on time')) : '';
+      return `<div class="hist-item"><span class="ts">${fmtTs(p.start.timestamp)} → ${new Date(p.stop.timestamp).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}</span><span class="val">${mins}m ${diff?'· '+diff:''}</span></div>`;
+    }).join('');
+  } else {
+    logHtml = taps.slice(0,50).map(t=>`<div class="hist-item"><span class="ts">${fmtTs(t.timestamp)}</span><span class="val">✓</span></div>`).join('');
+  }
+
+  document.getElementById('modal').innerHTML = `
+    <h3>${esc(task.name)}</h3>
+    <div class="field"><label>Schedule</label><div class="tag-id">${dayStr}${task.targetTime?' at '+fmtTime(task.targetTime):''} · reminders: ${remStr}</div></div>
+    <div class="field"><label>Type</label><div class="tag-id">${typeStr}</div></div>
+    <div class="stat-grid">
+      <div class="stat"><div class="v">${hit}/${scheduled}</div><div class="l">7-day hits</div></div>
+      <div class="stat"><div class="v">${taps.length}</div><div class="l">Total taps</div></div>
+      <div class="stat"><div class="v">${task.type==='session'?Math.floor(taps.length/2):taps.length}</div><div class="l">${task.type==='session'?'Sessions':'Logs'}</div></div>
+    </div>
+    <div style="font-size:11px;color:#8a8a96;text-transform:uppercase;letter-spacing:.06em;margin:14px 0 6px">Log</div>
+    <div>${logHtml}</div>
+    <div class="actions">
+      <button class="btn-secondary" id="d-close">Close</button>
+      <button class="btn-primary" id="d-edit">Edit</button>
+    </div>
+  `;
+  document.getElementById('modalBg').classList.add('open');
+  document.getElementById('d-close').onclick = closeModal;
+  document.getElementById('d-edit').onclick = ()=>openSetupModal(task.id, task);
+}
+
+/* ---------- Settings modal ---------- */
+function openSettings(){
+  const cur = getIcon();
+  document.getElementById('modal').innerHTML = `
+    <h3>Settings</h3>
+    <div class="field">
+      <label>Your icon (shown on the road)</label>
+      <div class="icons-grid" id="iconsGrid">
+        ${ICONS.map(i=>`<button data-i="${i}" class="${i===cur?'sel':''}">${i}</button>`).join('')}
+      </div>
+    </div>
+    <div class="field">
+      <label>NFC status</label>
+      <div class="tag-id">${nfcOn?'Armed and listening':(nfcError||'Not armed — tap anywhere on the app to arm')}</div>
+    </div>
+    <div class="field">
+      <label>Notifications</label>
+      <div class="tag-id">${('Notification' in window) ? Notification.permission : 'not supported'}</div>
+    </div>
+    <div class="hint">Reminders fire while the app is open. For best background behavior on Android: set Task Tap to "Unrestricted" in battery settings. Hard wake-up alarms come in the native (TWA) version.</div>
+    <div class="actions">
+      <button class="btn-primary" id="s-close" style="flex:1">Done</button>
+    </div>
+  `;
+  document.getElementById('modalBg').classList.add('open');
+  document.getElementById('iconsGrid').onclick = e=>{
+    if(e.target.tagName!=='BUTTON')return;
+    setIcon(e.target.dataset.i);
+    document.querySelectorAll('#iconsGrid button').forEach(b=>b.classList.toggle('sel', b.dataset.i===e.target.dataset.i));
+    render();
+  };
+  document.getElementById('s-close').onclick = closeModal;
+}
+
+/* ---------- First-run intro ---------- */
+function openIntro(){
+  document.getElementById('modal').innerHTML = `
+    <h3>Welcome</h3>
+    <p style="color:#a8a8b0;font-size:13px;line-height:1.5">
+      Bind an NFC sticker to each task. Tap the sticker to log it. The road shows your tasks; your icon moves along it.
+    </p>
+    <p style="color:#a8a8b0;font-size:13px;line-height:1.5">
+      <b style="color:#fff">For reliable reminders on Android:</b> open your phone settings → Apps → Task Tap → Battery → set to <b style="color:#fff">Unrestricted</b>. Otherwise Android may pause reminders when the app is backgrounded.
+    </p>
+    <p style="color:#a8a8b0;font-size:13px;line-height:1.5">
+      When you open the app, tap anywhere once to arm NFC for the session.
+    </p>
+    <div class="actions">
+      <button class="btn-primary" id="intro-ok" style="flex:1">Got it</button>
+    </div>
+  `;
+  document.getElementById('modalBg').classList.add('open');
+  document.getElementById('intro-ok').onclick = ()=>{ markIntroSeen(); closeModal(); };
+}
+
+/* ---------- Modal infra ---------- */
+function closeModal(){document.getElementById('modalBg').classList.remove('open');}
+document.getElementById('modalBg').addEventListener('click', e=>{ if(e.target.id==='modalBg') closeModal(); });
+
+/* ---------- FAB / settings wiring ---------- */
+document.getElementById('fab').onclick = ()=>{
+  // open setup in manual mode (works on desktop without NFC)
+  openSetupModal('');
+};
+document.getElementById('settingsBtn').onclick = openSettings;
+
+/* ---------- App init ---------- */
+async function init(){
+  if(isFirstRun()) openIntro();
+  setupSilentArm();
+  await render();
+  await updateIdleStatus();
+  await rescheduleReminders();
+  // Re-render every minute to keep "due / missed" states fresh
+  setInterval(async ()=>{ await render(); }, 60000);
+  // Re-arm NFC on visibility return (in case browser dropped the scan)
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState==='visible' && !nfcOn){
+      // Don't auto-arm; need a fresh user gesture. Just update label.
+      updateIdleStatus();
+    }
+    if(document.visibilityState==='visible') rescheduleReminders();
+  });
+}
+init();
+</script>
+</body>
+</html>
